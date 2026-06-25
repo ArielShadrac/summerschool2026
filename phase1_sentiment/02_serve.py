@@ -69,20 +69,20 @@ def charger_modele():
             "→ Lancez d'abord : python 01_train.py"
         )
 
-    # TODO 1a — Charger les métadonnées JSON
-    # Indice : meta_path.read_text(encoding="utf-8") puis json.loads()
-    meta = ...  # TODO
+    # Charger les métadonnées JSON
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
-    # TODO 1b — Charger le vectoriseur avec pickle
-    # Indice : open(MODEL_DIR / "vectorizer.pkl", "rb") as f: pickle.load(f)
-    state["vectoriseur"] = ...  # TODO
+    # Charger le vectoriseur avec pickle
+    with open(MODEL_DIR / "vectorizer.pkl", "rb") as f:
+        state["vectoriseur"] = pickle.load(f)
 
-    # TODO 1c — Charger le classifieur avec pickle
-    state["classifieur"] = ...  # TODO
+    # Charger le classifieur avec pickle
+    with open(MODEL_DIR / "classifier.pkl", "rb") as f:
+        state["classifieur"] = pickle.load(f)
 
-    # TODO 1d — Stocker les métadonnées dans state
-    state["meta"]    = ...  # TODO
-    state["classes"] = ...  # TODO : meta["classes"]
+    # Stocker les métadonnées dans state
+    state["meta"]    = meta
+    state["classes"] = meta["classes"]
 
     print(f"✓ Modèle chargé : {meta['type']} (accuracy: {meta['accuracy']:.1%})")
 
@@ -114,23 +114,19 @@ def predire(texte: str) -> dict:
     vec = state["vectoriseur"]
     clf = state["classifieur"]
 
-    # TODO 2a — Vectoriser le texte
-    # Indice : vec.transform([texte])  ← liste avec UN texte
-    X = ...  # TODO
+    # Vectoriser le texte — liste d'UN seul élément, vocabulaire figé
+    X = vec.transform([texte])
 
-    # TODO 2b — Prédire le label (0 ou 1)
-    label_id = ...  # TODO : clf.predict(X)[0]
+    # Prédire le label (0 ou 1)
+    label_id = clf.predict(X)[0]
 
-    # TODO 2c — Obtenir la probabilité associée à la prédiction
-    # Indice : clf.predict_proba(X) retourne une matrice [[prob_neg, prob_pos]]
-    # Indice : proba[0] donne [prob_négatif, prob_positif]
-    # Indice : proba[0][label_id] donne la probabilité de la classe prédite
-    proba = ...  # TODO
-    score = ...  # TODO : float(proba[0][label_id])
+    # Obtenir la probabilité de la classe prédite
+    # predict_proba retourne [[prob_négatif, prob_positif]]
+    proba = clf.predict_proba(X)
+    score = float(proba[0][label_id])
 
-    # TODO 2d — Récupérer le nom de la classe prédite
-    # Indice : state["classes"] = ["négatif", "positif"]
-    label = ...  # TODO : state["classes"][label_id]
+    # Récupérer le nom de la classe : state["classes"] = ["négatif", "positif"]
+    label = state["classes"][label_id]
 
     return {
         "label":   label,
@@ -154,11 +150,10 @@ async def lifespan(app: FastAPI):
     print("  CITADEL · Sentiment API — Démarrage")
     print("=" * 50)
 
-    # TODO 3 — Appeler charger_modele() ici
-    # Indice : c'est ici que le modèle est chargé en mémoire au démarrage
-    # TODO
+    # Charger le modèle en mémoire une seule fois au démarrage
+    charger_modele()
 
-    print("\n✅  API prête sur http://0.0.0.0:8000")
+    print("\n  API prête sur http://0.0.0.0:8000")
     print("    → /docs  pour tester interactivement")
     print("    → /app   pour l'interface web\n")
 
@@ -176,6 +171,7 @@ app = FastAPI(
     description="Classificateur de sentiment en français — TP Déploiement Phase 1",
     version="1.0.0",
     lifespan=lifespan,
+    swagger_ui_parameters={"syntaxHighlight": False},
 )
 
 # Autoriser les appels depuis le navigateur (interface web)
@@ -209,39 +205,32 @@ class PredictionSortie(BaseModel):
 def predire_sentiment(corps: TexteEntree):
     """
     Analyser le sentiment d'un texte en français.
-
-    Complétez cet endpoint :
-        1. Vérifier que corps.texte n'est pas vide
-           → Si vide : lever HTTPException(status_code=400, detail="...")
-        2. Appeler la fonction predire() avec corps.texte
-        3. Retourner un PredictionSortie avec les bons champs
     """
-    # TODO 4a — Valider l'entrée
-    # Indice : if not corps.texte.strip(): raise HTTPException(...)
-    # TODO
+    # Valider l'entrée : refuser un texte vide ou uniquement des espaces
+    if not corps.texte.strip():
+        raise HTTPException(status_code=400, detail="Le texte ne peut pas être vide.")
 
-    # TODO 4b — Appeler predire() et récupérer le résultat
-    resultat = ...  # TODO : predire(corps.texte)
+    # Appeler predire() et récupérer le résultat
+    resultat = predire(corps.texte)
 
-    # TODO 4c — Retourner la réponse
-    # Indice : PredictionSortie(texte=corps.texte, modele=..., **resultat)
-    return ...  # TODO
+    # Retourner la réponse — **resultat dépaquète label, score, positif
+    return PredictionSortie(
+        texte=corps.texte,
+        modele=state["meta"]["type"],
+        **resultat,
+    )
 
 
 @app.get("/health")
 def etat():
     """
     Retourner l'état du service.
-
-    Retournez un dictionnaire avec :
-        "status"  : "ok"
-        "modele"  : state["meta"]["type"]
-        "accuracy": state["meta"]["accuracy"]
-        "classes" : state["classes"]
     """
-    # TODO 5 — Retourner les informations sur le modèle en production
     return {
-        # TODO : compléter
+        "status":   "ok",
+        "modele":   state["meta"]["type"],
+        "accuracy": state["meta"]["accuracy"],
+        "classes":  state["classes"],
     }
 
 
@@ -269,3 +258,4 @@ def accueil():
             "GET  /docs"   : "Documentation interactive Swagger",
         },
     }
+    
